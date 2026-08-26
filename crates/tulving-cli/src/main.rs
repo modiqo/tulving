@@ -5,6 +5,7 @@
 //! quiet it for a while (`snooze`), is this thing even on (`status`).
 
 mod platform;
+mod update;
 
 use std::collections::HashMap;
 
@@ -160,6 +161,12 @@ enum Command {
     /// Serve MCP over stdio (stateless; spec 2026-07-28) so any harness
     /// can crystallize and recall
     Mcp,
+    /// Update to the latest release; --check reports JSON without installing
+    Update {
+        /// Report installed vs latest as JSON; do not install
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() {
@@ -402,6 +409,7 @@ fn run() -> Result<()> {
             println!("exported ledger to {path}");
         }
         Command::Mcp => tulving_mcp::serve()?,
+        Command::Update { check } => update::run(check)?,
     }
     Ok(())
 }

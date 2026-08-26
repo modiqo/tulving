@@ -75,7 +75,8 @@ still passes through for those who want it.
 
 The machine surface: `add -` (JSON spec on stdin), `recall` (JSON lines
 out), `tick` (the OS timer calls it), `init`/`uninit`, `export <path>`,
-and `mcp` (serve agent harnesses over stdio).
+`mcp` (serve agent harnesses over stdio), and `update [--check]`.
+The complete reference is [docs/PLAYBOOK.md](docs/PLAYBOOK.md).
 
 ## The habits it teaches
 
