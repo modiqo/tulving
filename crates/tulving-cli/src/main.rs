@@ -23,6 +23,8 @@ struct Cli {
     command: Command,
 }
 
+// One Command is parsed once per process; variant size imbalance is free.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
     /// Keep doing this: tulving every morning --why "pricing watch" -- <cmd>
@@ -44,6 +46,11 @@ enum Command {
         /// optional JSON pointer scopes the comparison (e.g. /plans/0/price)
         #[arg(long, num_args = 0..=1, default_missing_value = "*")]
         on_change: Option<String>,
+        /// Set-diff an array result by this JSON pointer per item
+        /// (e.g. /name); deltas become {added, removed, changed} and the
+        /// ledger stores deltas instead of snapshots after the first run
+        #[arg(long)]
+        key: Option<String>,
         /// Retire when this jq predicate over the result is true
         /// (e.g. '.state == "MERGED"'; `prev` names the previous result)
         #[arg(long)]
@@ -162,6 +169,7 @@ fn run() -> Result<()> {
             max_runs,
             for_,
             on_change,
+            key,
             until,
             on,
             notify,
@@ -186,6 +194,7 @@ fn run() -> Result<()> {
                 on,
                 notify: notify.map(|n| n.split_whitespace().map(str::to_string).collect()),
                 on_change,
+                key,
                 tags: tag,
             };
             let s = ops::crystallize(&ledger, spec)?;

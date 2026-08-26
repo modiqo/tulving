@@ -8,7 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::model::{Envelope, Schedule};
 use crate::paths;
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// An open handle on the ledger database.
 #[derive(Debug)]
@@ -90,6 +90,19 @@ impl Ledger {
                  ALTER TABLE schedules ADD COLUMN notify TEXT;",
             )?;
         }
+        if version < 3 {
+            // v3: keyed set-diffing. Envelopes for keyed schedules store
+            // deltas; this table caches current membership for the next
+            // diff and is rebuildable from the envelope history.
+            self.conn.execute_batch(
+                "ALTER TABLE schedules ADD COLUMN change_key TEXT;
+                 CREATE TABLE IF NOT EXISTS memberships (
+                    schedule_id TEXT PRIMARY KEY REFERENCES schedules(id),
+                    result      TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                 );",
+            )?;
+        }
         self.conn
             .pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(())
@@ -100,9 +113,10 @@ impl Ledger {
         self.conn.execute(
             "INSERT INTO schedules (id, argv, cadence, cron, why, cwd, env,
                 origin, max_runs, expires_at, on_change, tags, created_at,
-                status, next_run, run_count, until_pred, on_pred, notify)
+                status, next_run, run_count, until_pred, on_pred, notify,
+                change_key)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,
-                ?16,?17,?18,?19)",
+                ?16,?17,?18,?19,?20)",
             params![
                 s.id,
                 serde_json::to_string(&s.argv)?,
@@ -123,6 +137,7 @@ impl Ledger {
                 s.until,
                 s.on,
                 s.notify.as_ref().map(serde_json::to_string).transpose()?,
+                s.key,
             ],
         )?;
         Ok(())
@@ -225,6 +240,32 @@ impl Ledger {
         Ok(())
     }
 
+    /// Current membership snapshot for a keyed schedule, if one exists.
+    pub fn get_membership(&self, schedule_id: &str) -> Result<Option<serde_json::Value>> {
+        let row: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT result FROM memberships WHERE schedule_id = ?1",
+                params![schedule_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(row.and_then(|s| serde_json::from_str(&s).ok()))
+    }
+
+    /// Upsert the membership cache after a keyed run. Rebuildable from
+    /// the envelope history (first-run baseline plus deltas).
+    pub fn set_membership(&self, schedule_id: &str, result: &serde_json::Value) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO memberships (schedule_id, result, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(schedule_id) DO UPDATE SET
+                result = excluded.result, updated_at = excluded.updated_at",
+            params![schedule_id, result.to_string(), Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
     /// Append one run's envelope. This is the only write to `envelopes`.
     pub fn append_envelope(&self, e: &Envelope) -> Result<()> {
         self.conn.execute(
@@ -296,7 +337,8 @@ impl Ledger {
 
 const SCHEDULE_COLS: &str = "id, argv, cadence, cron, why, cwd, env, origin,
     max_runs, expires_at, on_change, tags, created_at, status,
-    retired_reason, next_run, run_count, until_pred, on_pred, notify";
+    retired_reason, next_run, run_count, until_pred, on_pred, notify,
+    change_key";
 
 const ENVELOPE_COLS: &str = "run_id, schedule_id, ts, exit_code, result, raw,
     duration_ms, changed, missed, delta, tags";
@@ -337,6 +379,7 @@ fn row_to_schedule(row: &Row) -> rusqlite::Result<Schedule> {
         until: row.get(17)?,
         on: row.get(18)?,
         notify: notify.and_then(|s| serde_json::from_str(&s).ok()),
+        key: row.get(20)?,
     })
 }
 

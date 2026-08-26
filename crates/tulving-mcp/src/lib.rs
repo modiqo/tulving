@@ -157,6 +157,7 @@ fn tools_list() -> Value {
                     "notify": { "type": "array", "items": { "type": "string" },
                                 "description": "Notifier argv; receives the envelope JSON on stdin" },
                     "on_change": string("Diff results against the previous run; optional JSON pointer scopes it"),
+                    "key": string("Set-diff: JSON pointer identifying items in an array result (e.g. /name); deltas become {added, removed, changed}"),
                     "tags": { "type": "array", "items": { "type": "string" } },
                     "origin": { "type": "object", "description": "Who is crystallizing: harness, session, pinned ref" }
                 },
@@ -316,6 +317,7 @@ fn tool_schedule(ledger: &Ledger, args: &Value) -> Result<(String, Value)> {
         on: arg_str(args, "on"),
         notify,
         on_change: arg_str(args, "on_change"),
+        key: arg_str(args, "key"),
         tags: arg_vec(args, "tags"),
     };
     let schedule = ops::crystallize(ledger, spec)?;

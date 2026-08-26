@@ -52,6 +52,11 @@ pub struct ScheduleSpec {
     /// (e.g. "/plans/0/price") scopes the comparison.
     #[serde(default)]
     pub on_change: Option<String>,
+    /// Treat the result as a set of objects keyed by this JSON pointer
+    /// (e.g. "/name"): deltas become {added, removed, changed} and the
+    /// ledger stores deltas instead of full snapshots after the first run.
+    #[serde(default)]
+    pub key: Option<String>,
     /// Free-form tags copied onto every envelope, for recall filtering.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -88,6 +93,8 @@ pub struct Schedule {
     pub notify: Option<Vec<String>>,
     /// Diff scope for change detection; see [`ScheduleSpec::on_change`].
     pub on_change: Option<String>,
+    /// Membership key for set-diffing; see [`ScheduleSpec::key`].
+    pub key: Option<String>,
     /// Tags copied onto every envelope.
     pub tags: Vec<String>,
     /// When the schedule was crystallized.

@@ -59,6 +59,7 @@ pub fn crystallize(ledger: &Ledger, spec: ScheduleSpec) -> Result<Schedule> {
         on: spec.on,
         notify: spec.notify,
         on_change: spec.on_change,
+        key: spec.key,
         tags: spec.tags,
         created_at: now,
         status: "active".into(),
@@ -118,10 +119,29 @@ pub fn run_schedule(ledger: &Ledger, schedule: &Schedule, missed: bool) -> Resul
     };
 
     let previous = ledger.last_envelope(&schedule.id)?;
-    let (changed, delta) = if schedule.on_change.is_some() {
-        diff_against_previous(schedule, previous.as_ref(), result.as_ref(), raw.as_deref())
-    } else {
-        (false, None)
+    let mut stored_result = result.clone();
+    let (changed, delta) = match (
+        &schedule.key,
+        select_array(result.as_ref(), &schedule.on_change),
+    ) {
+        (Some(key), Some(items)) => match ledger.get_membership(&schedule.id)? {
+            None => {
+                // Baseline run: the envelope keeps the full snapshot; every
+                // later keyed run stores only its delta (docs/DESIGN.md §7).
+                ledger.set_membership(&schedule.id, &items)?;
+                (false, None)
+            }
+            Some(prev_items) => {
+                let (moved, delta) = keyed_diff(&prev_items, &items, key);
+                ledger.set_membership(&schedule.id, &items)?;
+                stored_result = None;
+                (moved, delta)
+            }
+        },
+        _ if schedule.on_change.is_some() => {
+            diff_against_previous(schedule, previous.as_ref(), result.as_ref(), raw.as_deref())
+        }
+        _ => (false, None),
     };
 
     let mut envelope = Envelope {
@@ -130,7 +150,7 @@ pub fn run_schedule(ledger: &Ledger, schedule: &Schedule, missed: bool) -> Resul
         schedule_id: schedule.id.clone(),
         ts,
         exit,
-        result,
+        result: stored_result,
         raw,
         duration_ms,
         changed,
@@ -180,6 +200,83 @@ pub fn run_schedule(ledger: &Ledger, schedule: &Schedule, missed: bool) -> Resul
         }
     }
     Ok(envelope)
+}
+
+/// The array a keyed schedule watches: the `on_change` pointer selects
+/// it inside the result document; a bare array result is used directly.
+fn select_array(
+    result: Option<&serde_json::Value>,
+    on_change: &Option<String>,
+) -> Option<serde_json::Value> {
+    let doc = result?;
+    let selected = match on_change.as_deref().filter(|p| !p.is_empty() && *p != "*") {
+        Some(pointer) => doc.pointer(pointer)?,
+        None => doc,
+    };
+    selected.is_array().then(|| selected.clone())
+}
+
+/// Set-diff two membership arrays keyed by a JSON pointer into each item.
+/// Items missing the key are identified by their whole serialized value.
+fn keyed_diff(
+    prev: &serde_json::Value,
+    new: &serde_json::Value,
+    key: &str,
+) -> (bool, Option<serde_json::Value>) {
+    use std::collections::BTreeMap;
+    let index = |v: &serde_json::Value| -> BTreeMap<String, serde_json::Value> {
+        v.as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| {
+                        let k = item
+                            .pointer(key)
+                            .map(|kv| match kv.as_str() {
+                                Some(text) => text.to_string(),
+                                None => kv.to_string(),
+                            })
+                            .unwrap_or_else(|| item.to_string());
+                        (k, item.clone())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let before = index(prev);
+    let after = index(new);
+    let added: Vec<&serde_json::Value> = after
+        .iter()
+        .filter(|(k, _)| !before.contains_key(*k))
+        .map(|(_, item)| item)
+        .collect();
+    let removed: Vec<&serde_json::Value> = before
+        .iter()
+        .filter(|(k, _)| !after.contains_key(*k))
+        .map(|(_, item)| item)
+        .collect();
+    let changed: Vec<serde_json::Value> = after
+        .iter()
+        .filter_map(|(k, item)| {
+            let old = before.get(k)?;
+            (old != item).then(|| serde_json::json!({ "key": k, "prev": old, "new": item }))
+        })
+        .collect();
+    if added.is_empty() && removed.is_empty() && changed.is_empty() {
+        return (false, None);
+    }
+    let delta = serde_json::json!({
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "counts": {
+            "total": after.len(),
+            "added": added.len(),
+            "removed": removed.len(),
+            "changed": changed.len(),
+        },
+    });
+    (true, Some(delta))
 }
 
 /// What predicates see: the JSON result, or `{"raw": text}` for
@@ -331,6 +428,7 @@ mod tests {
             on: None,
             notify: None,
             on_change: None,
+            key: None,
             tags: vec![],
         }
     }
@@ -395,6 +493,65 @@ mod tests {
         // Second run has the same dau, so the drop predicate stays false.
         let second = run_schedule(&ledger, &s, false).unwrap();
         assert!(second.tags.is_empty());
+    }
+
+    #[test]
+    fn keyed_diff_buckets_added_removed_changed() {
+        let prev = serde_json::json!([
+            {"name": "a", "v": 1}, {"name": "b", "v": 1}, {"name": "c", "v": 1}
+        ]);
+        let new = serde_json::json!([
+            {"name": "a", "v": 1}, {"name": "b", "v": 2}, {"name": "d", "v": 1}
+        ]);
+        let (moved, delta) = keyed_diff(&prev, &new, "/name");
+        assert!(moved);
+        let delta = delta.unwrap();
+        assert_eq!(delta["counts"]["added"], 1);
+        assert_eq!(delta["counts"]["removed"], 1);
+        assert_eq!(delta["counts"]["changed"], 1);
+        assert_eq!(delta["added"][0]["name"], "d");
+        assert_eq!(delta["removed"][0]["name"], "c");
+        assert_eq!(delta["changed"][0]["key"], "b");
+    }
+
+    #[test]
+    fn keyed_schedule_stores_baseline_then_deltas() {
+        let ledger = memory_ledger();
+        let mut sp = spec(
+            &["sh", "-c", "echo \"[{\\\"name\\\": \\\"$N\\\"}]\""],
+            "hourly",
+        );
+        sp.key = Some("/name".into());
+        let s = crystallize(&ledger, sp).unwrap();
+
+        std::env::set_var("N", "alpha");
+        let first = run_schedule(&ledger, &s, false).unwrap();
+        assert!(!first.changed, "baseline is not a change");
+        assert!(first.result.is_some(), "baseline keeps the full snapshot");
+
+        std::env::set_var("N", "beta");
+        let second = run_schedule(&ledger, &s, false).unwrap();
+        assert!(second.changed);
+        assert!(second.result.is_none(), "keyed runs store only the delta");
+        let delta = second.delta.unwrap();
+        assert_eq!(delta["added"][0]["name"], "beta");
+        assert_eq!(delta["removed"][0]["name"], "alpha");
+
+        let membership = ledger.get_membership(&s.id).unwrap().unwrap();
+        assert_eq!(membership[0]["name"], "beta");
+    }
+
+    #[test]
+    fn keyed_quiet_run_is_tiny_and_unchanged() {
+        let ledger = memory_ledger();
+        let mut sp = spec(&["echo", "[{\"name\": \"a\"}]"], "hourly");
+        sp.key = Some("/name".into());
+        let s = crystallize(&ledger, sp).unwrap();
+        run_schedule(&ledger, &s, false).unwrap();
+        let quiet = run_schedule(&ledger, &s, false).unwrap();
+        assert!(!quiet.changed);
+        assert!(quiet.result.is_none());
+        assert!(quiet.delta.is_none());
     }
 
     #[test]

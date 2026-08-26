@@ -34,6 +34,25 @@ all flags; play parameters go after `--`:
 rote-schedule me/pr-state "every 15m" --until '.state == "MERGED"' -- pr=4123
 ```
 
+## Watching the registry ("what's new")
+
+The registry list is just a command emitting JSON, so a what's-new watch
+needs no integration code at all:
+
+```bash
+tulving every 6h --why "watch modiqo plays" --on-change --key /name \
+  -- rote registry play list --org modiqo --json
+```
+
+The first run stores the catalog baseline; every later run appends only
+a `{added, removed, changed}` delta keyed by play name. `tulving
+changed` names the new plays, `recall --changed` hands them to agents at
+session start, and — unlike timestamp-window approaches — removals are
+detected too. Add one watch per org (`rote registry org list`) and one
+for the public community. When rote exposes its paginated accessible
+Play-list API with `version_created_at`, point the same watch at it for
+exact release detection; only the command changes.
+
 ## Caveats
 
 - The shim escapes quotes and backslashes in arguments; control

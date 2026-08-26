@@ -37,6 +37,13 @@ There is no daemon. State lives in `~/.tulving/tulving.db` (override with
 - **Change detection over any command.** `--on-change [/json/pointer]`
   flags runs whose result differs from the previous run, scoped so noisy
   fields stay quiet. Deltas land in the envelope as `{prev, new}`.
+- **Catalog watches diff as sets.** `--key /name` treats an array result
+  as a membership set: deltas become `{added, removed, changed}` with
+  counts, so a registry, package list, or price sheet answers "what
+  appeared, what vanished, what moved" by name. After the first run's
+  baseline snapshot, keyed watches store only deltas — a quiet run costs
+  ~150 bytes, so minutes-cadence watches never bloat the ledger, and any
+  past state reconstructs from baseline plus deltas.
 - **jq predicates see the previous run.** `--until '.state == "MERGED"'`
   retires a schedule when its work is done; `--on '.dau < prev.dau *
   0.95'` fires the notifier on a five-percent drop. A predicate with a

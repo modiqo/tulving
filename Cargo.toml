@@ -6,7 +6,7 @@ members = ["crates/tulving-core", "crates/tulving-cli", "crates/tulving-mcp"]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/tulving/tulving"
+repository = "https://github.com/modiqo/tulving"
 
 [workspace.lints.rust]
 missing_docs = "deny"
