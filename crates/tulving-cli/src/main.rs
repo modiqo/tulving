@@ -74,6 +74,9 @@ enum Command {
     Add {
         /// Must be "-" (read the spec from stdin)
         input: String,
+        /// Validate and show what would be created, without writing it
+        #[arg(long)]
+        dry_run: bool,
     },
     /// What do I have running?
     #[command(visible_alias = "ls")]
@@ -206,14 +209,17 @@ fn run() -> Result<()> {
             let s = ops::crystallize(&ledger, spec)?;
             print_card(&s);
         }
-        Command::Add { input } => {
+        Command::Add { input, dry_run } => {
             if input != "-" {
                 bail!("usage: tulving add -   (JSON spec on stdin)");
             }
-            let ledger = Ledger::open_default()?;
             let spec: ScheduleSpec = serde_json::from_reader(std::io::stdin())
                 .context("stdin is not a valid schedule spec")?;
-            let s = ops::crystallize(&ledger, spec)?;
+            let s = if dry_run {
+                ops::plan(spec)?
+            } else {
+                ops::crystallize(&Ledger::open_default()?, spec)?
+            };
             println!("{}", serde_json::to_string_pretty(&s)?);
         }
         Command::List { all } => {

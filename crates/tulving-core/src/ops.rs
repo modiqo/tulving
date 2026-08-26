@@ -27,8 +27,10 @@ pub fn next_occurrence(cron_expr: &str, after: DateTime<Utc>) -> Result<DateTime
     Ok(next.with_timezone(&Utc))
 }
 
-/// Crystallize a spec into a stored schedule and return it.
-pub fn crystallize(ledger: &Ledger, spec: ScheduleSpec) -> Result<Schedule> {
+/// Validate a spec and build the schedule it would create, without
+/// writing anything. Producers call this to surface errors — a bad
+/// cadence, a predicate typo, an empty command — before committing.
+pub fn plan(spec: ScheduleSpec) -> Result<Schedule> {
     if spec.argv.is_empty() {
         bail!("schedule needs a command (argv)");
     }
@@ -67,6 +69,12 @@ pub fn crystallize(ledger: &Ledger, spec: ScheduleSpec) -> Result<Schedule> {
         next_run: Some(next_occurrence(&cron, now)?),
         run_count: 0,
     };
+    Ok(schedule)
+}
+
+/// Crystallize a spec into a stored schedule and return it.
+pub fn crystallize(ledger: &Ledger, spec: ScheduleSpec) -> Result<Schedule> {
+    let schedule = plan(spec)?;
     ledger.insert_schedule(&schedule)?;
     Ok(schedule)
 }
