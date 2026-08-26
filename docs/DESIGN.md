@@ -285,12 +285,17 @@ run as the user who crystallized them, with that user's credentials.
 
 ## 17. Governance
 
-Apache-2.0, in a neutral repository not owned by any producer, rote
-included. The envelope spec and SQLite schema are the public API;
-both version additively and never break. A vendor evaluating tulving
-must find its three answers in five minutes: permissive license, frozen
-spec, and no structural advantage for any producer — rote is the first
-producer, not the owner.
+Dual-licensed MIT or Apache-2.0. The envelope spec (docs/ENVELOPE.md)
+and SQLite schema are the public API; both version additively and never
+break. A vendor evaluating tulving must find its three answers in five
+minutes: permissive license, frozen spec, and no structural advantage
+for any producer — rote is the first producer, not the owner.
+
+Current status: the project incubates in the modiqo organization, which
+also produces rote. This deviates from the neutral-home principle
+above, knowingly. Governance — including a move to a producer-neutral
+organization — is revisited at 1.0; the permissive dual license keeps
+that door open for everyone in the meantime.
 
 The first commit is M1. Build it, schedule three real watches, and let
 the ledger argue for itself.
