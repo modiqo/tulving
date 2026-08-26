@@ -22,6 +22,19 @@ pub fn to_cron(cadence: &str) -> Result<String> {
         .unwrap_or(&text)
         .trim()
         .to_string();
+    let text = text
+        .strip_prefix("each ")
+        .unwrap_or(&text)
+        .trim()
+        .to_string();
+    if text == "weekly" {
+        return Ok("0 9 * * 1".into());
+    }
+    let text = text
+        .strip_prefix("weekly ")
+        .unwrap_or(&text)
+        .trim()
+        .to_string();
     if text.is_empty() {
         bail!("empty cadence");
     }
@@ -211,6 +224,10 @@ mod tests {
         assert_eq!(to_cron("monday 9am").unwrap(), "0 9 * * 1");
         assert_eq!(to_cron("hourly").unwrap(), "0 * * * *");
         assert_eq!(to_cron("every day at 6pm").unwrap(), "0 18 * * *");
+        assert_eq!(to_cron("weekly").unwrap(), "0 9 * * 1");
+        assert_eq!(to_cron("weekly monday 9am").unwrap(), "0 9 * * 1");
+        assert_eq!(to_cron("every weekly friday 5pm").unwrap(), "0 17 * * 5");
+        assert_eq!(to_cron("each morning").unwrap(), "30 7 * * 1-5");
         assert_eq!(to_cron("30 7 * * 1-5").unwrap(), "30 7 * * 1-5");
     }
 

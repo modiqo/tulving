@@ -48,7 +48,7 @@ echo '{
 ```
 
 Spec fields: `argv` (required), `cadence` (required; plain words like
-"every morning", "15m", "weekdays 7:30"), `why`, `max_runs`, `for`
+"every morning", "15m", "weekdays 7:30", "weekly monday 9am"), `why`, `max_runs`, `for`
 (duration: 2w/14d/6h), `until` (jq predicate that retires the schedule),
 `on` (jq predicate that fires the notifier), `notify` (argv), `on_change`
 (JSON pointer scoping change detection), `tags`, `origin`. In `until`

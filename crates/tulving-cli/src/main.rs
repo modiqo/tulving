@@ -107,18 +107,24 @@ enum Command {
         /// Schedule id
         id: String,
     },
-    /// Stop this schedule; its history stays in the ledger
+    /// Stop schedules; history stays in the ledger
     #[command(visible_alias = "retire")]
     Stop {
-        /// Schedule id
-        id: String,
+        /// Schedule id (omit with --all)
+        id: Option<String>,
+        /// Stop every active schedule
+        #[arg(long)]
+        all: bool,
     },
-    /// Quiet a schedule for a while without stopping it
+    /// Quiet schedules for a while without stopping them:
+    /// tulving snooze <id> 2d, or tulving snooze --all 1w
     Snooze {
-        /// Schedule id
-        id: String,
-        /// How long: 2d, 1w, 6h
-        duration: String,
+        /// Schedule id and duration (2d, 1w, 6h), in either order
+        #[arg(num_args = 1..=2, required = true)]
+        args: Vec<String>,
+        /// Snooze every active schedule
+        #[arg(long)]
+        all: bool,
     },
     /// Is this thing even on? Timer, ledger, next run, recent misses
     Status,
@@ -295,21 +301,62 @@ fn run() -> Result<()> {
             let e = ops::run_schedule(&ledger, &s, false)?;
             println!("{}", serde_json::to_string_pretty(&e)?);
         }
-        Command::Stop { id } => {
+        Command::Stop { id, all } => {
             let ledger = Ledger::open_default()?;
-            ledger.retire(&id, "stopped by user")?;
-            println!("✓ stopped #{id} — its history stays in the ledger");
+            match (id, all) {
+                (Some(id), false) => {
+                    ledger.retire(&id, "stopped by user")?;
+                    println!("✓ stopped #{id} — its history stays in the ledger");
+                }
+                (None, true) => {
+                    let active = ledger.list_schedules(false)?;
+                    for s in &active {
+                        ledger.retire(&s.id, "stopped by user (stop --all)")?;
+                    }
+                    println!(
+                        "✓ stopped {} schedule(s) — history stays in the ledger",
+                        active.len()
+                    );
+                    println!("  (the clock still ticks harmlessly; `tulving uninit` removes it)");
+                }
+                _ => bail!("give one schedule id, or --all"),
+            }
         }
-        Command::Snooze { id, duration } => {
+        Command::Snooze { args, all } => {
             let ledger = Ledger::open_default()?;
+            // id and duration accepted in either order.
+            let mut duration = None;
+            let mut id = None;
+            for arg in args {
+                if duration.is_none() && cadence::parse_duration(&arg).is_ok() {
+                    duration = Some(arg);
+                } else if id.is_none() {
+                    id = Some(arg);
+                } else {
+                    bail!("too many arguments; expected a schedule id and a duration");
+                }
+            }
+            let Some(duration) = duration else {
+                bail!("missing duration (2d, 1w, 6h)");
+            };
             let until = chrono::Utc::now() + cadence::parse_duration(&duration)?;
-            ledger.snooze_until(&id, until)?;
-            println!(
-                "✓ #{id} snoozed until {}",
-                until
-                    .with_timezone(&chrono::Local)
-                    .format("%a %Y-%m-%d %H:%M")
-            );
+            let local = until
+                .with_timezone(&chrono::Local)
+                .format("%a %Y-%m-%d %H:%M");
+            match (id, all) {
+                (Some(id), false) => {
+                    ledger.snooze_until(&id, until)?;
+                    println!("✓ #{id} snoozed until {local}");
+                }
+                (None, true) => {
+                    let active = ledger.list_schedules(false)?;
+                    for s in &active {
+                        ledger.snooze_until(&s.id, until)?;
+                    }
+                    println!("✓ snoozed {} schedule(s) until {local}", active.len());
+                }
+                _ => bail!("give one schedule id, or --all"),
+            }
         }
         Command::Status => {
             let ledger = Ledger::open_default()?;

@@ -56,7 +56,7 @@ tulving why <id>         # why does this run?
 ```
 
 No cron syntax appears anywhere. Cadence is plain words — `every
-morning`, `15m`, `weekdays 7:30`, `monday 9am` — and raw 5-field cron
+morning`, `15m`, `weekdays 7:30`, `monday 9am`, `weekly` — and raw 5-field cron
 still passes through for those who want it.
 
 ## Commands are the questions you already ask
@@ -69,8 +69,8 @@ still passes through for those who want it.
 | "what happened?" | `digest [--since today]` |
 | "why does this run?" | `why <id>` — add text to set the reason |
 | "run it now" | `now <id>` |
-| "stop this" | `stop <id>` — history stays in the ledger |
-| "quiet it for a while" | `snooze <id> 2d` |
+| "stop this" | `stop <id>` — or `stop --all`; history stays in the ledger |
+| "quiet it for a while" | `snooze <id> 2d` — or `snooze --all 1w` |
 | "is this thing even on?" | `status` |
 
 The machine surface: `add -` (JSON spec on stdin), `recall` (JSON lines
