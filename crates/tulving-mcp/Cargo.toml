@@ -1,0 +1,16 @@
+[package]
+name = "tulving-mcp"
+description = "Stateless MCP stdio server exposing tulving to any harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+tulving-core = { path = "../tulving-core", version = "0.1.0" }
+
+[lints]
+workspace = true

@@ -1,0 +1,35 @@
+# cargo-deny configuration: supply-chain checks that fail the build.
+# Run: cargo deny check
+
+[graph]
+all-features = true
+
+[advisories]
+# Any RUSTSEC advisory or yanked crate in the tree fails the check.
+yanked = "deny"
+
+[licenses]
+# Every dependency must carry one of these licenses, at high confidence.
+# A crate with no detectable license file fails the check.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions bloat the binary; surface them, do not block yet.
+multiple-versions = "warn"
+# Wildcard dependency requirements are never acceptable.
+wildcards = "deny"
+
+[sources]
+# Dependencies come from crates.io only.
+unknown-registry = "deny"
+unknown-git = "deny"

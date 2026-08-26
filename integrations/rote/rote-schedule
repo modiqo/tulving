@@ -1,0 +1,74 @@
+#!/bin/sh
+# rote-schedule — crystallize a rote play into a tulving schedule.
+#
+# A Tier-2 integration (see docs/DESIGN.md §11): composes the pinned
+# `rote play run <ref> -y` command and hands the spec to `tulving add -`.
+# Independent of both binaries' internals; POSIX sh, no dependencies.
+#
+# Usage:
+#   rote-schedule <owner/name[@version]> "<cadence>" [flags] [-- <play params>...]
+#
+# Flags:
+#   --why "..."        why this schedule exists
+#   --max-runs N       retire after N runs
+#   --for 2w           retire after a duration (2w, 14d, 6h)
+#   --until '<jq>'     retire when the predicate over the result is true
+#   --on '<jq>'        fire the notifier when the predicate is true
+#   --on-change PTR    diff results; "*" for the whole result, or a
+#                      JSON pointer like /dau
+#
+# Examples:
+#   rote-schedule acme/dau@1.2 "every morning" --why "pricing watch" --for 2w
+#   rote-schedule me/pr-state "every 15m" --until '.state == "MERGED"' -- pr=4123
+
+set -eu
+
+usage() {
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+[ $# -ge 2 ] || usage
+REF=$1
+CADENCE=$2
+shift 2
+
+WHY='' MAX_RUNS='' FOR='' UNTIL='' ON='' ON_CHANGE=''
+while [ $# -gt 0 ]; do
+  case $1 in
+    --why)       WHY=$2; shift 2 ;;
+    --max-runs)  MAX_RUNS=$2; shift 2 ;;
+    --for)       FOR=$2; shift 2 ;;
+    --until)     UNTIL=$2; shift 2 ;;
+    --on)        ON=$2; shift 2 ;;
+    --on-change) ON_CHANGE=$2; shift 2 ;;
+    --)          shift; break ;;
+    -h|--help)   usage ;;
+    *) echo "rote-schedule: unknown flag '$1'" >&2; exit 2 ;;
+  esac
+done
+
+command -v tulving >/dev/null 2>&1 || {
+  echo "rote-schedule: tulving is not on PATH (https://github.com/tulving/tulving)" >&2
+  exit 1
+}
+
+# JSON string escaping: backslash and double quote. Play params and
+# predicates with control characters are out of scope for this shim.
+esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+ARGV="\"rote\",\"play\",\"run\",\"$(esc "$REF")\",\"-y\""
+for param in "$@"; do
+  ARGV="$ARGV,\"$(esc "$param")\""
+done
+
+SPEC="{\"argv\":[$ARGV],\"cadence\":\"$(esc "$CADENCE")\""
+[ -n "$WHY" ]       && SPEC="$SPEC,\"why\":\"$(esc "$WHY")\""
+[ -n "$MAX_RUNS" ]  && SPEC="$SPEC,\"max_runs\":$MAX_RUNS"
+[ -n "$FOR" ]       && SPEC="$SPEC,\"for\":\"$(esc "$FOR")\""
+[ -n "$UNTIL" ]     && SPEC="$SPEC,\"until\":\"$(esc "$UNTIL")\""
+[ -n "$ON" ]        && SPEC="$SPEC,\"on\":\"$(esc "$ON")\""
+[ -n "$ON_CHANGE" ] && SPEC="$SPEC,\"on_change\":\"$(esc "$ON_CHANGE")\""
+SPEC="$SPEC,\"origin\":{\"harness\":\"rote\",\"ref\":\"$(esc "$REF")\"}}"
+
+printf '%s' "$SPEC" | tulving add -

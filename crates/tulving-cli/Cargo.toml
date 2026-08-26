@@ -1,0 +1,22 @@
+[package]
+name = "tulving-cli"
+description = "tulving — a tiny cron with a memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "tulving"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde_json.workspace = true
+tulving-core = { path = "../tulving-core", version = "0.1.0" }
+tulving-mcp = { path = "../tulving-mcp", version = "0.1.0" }
+
+[lints]
+workspace = true

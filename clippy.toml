@@ -1,0 +1,5 @@
+# Tests may unwrap: a failed unwrap in a test IS the failure report.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
