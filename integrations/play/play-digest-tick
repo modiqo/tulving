@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""play-digest-tick — run Play's two-phase digest delivery under tulving.
+
+Play publishes a host-neutral scheduler contract (play.digest-delivery/v1):
+`prepare` emits an immutable envelope with a deterministic delivery id;
+`release` validates a success acknowledgment and emits the next checkpoint,
+which the HOST must persist. Play never installs a scheduler; tulving is one.
+
+This bridge is one tulving-scheduled command:
+  1. prepare (with the host-persisted checkpoint, when one exists)
+  2. deliver: the digest lands in the tulving ledger as this run's result
+  3. ack + release, then persist the emitted checkpoint
+
+Schedule it:
+  tulving every morning --why "Play what's-new digest" \
+      --on '.has_updates' -- play-digest-tick
+
+The `--on '.has_updates'` predicate notifies only when the catalog moved;
+quiet days append a quiet envelope. Failed runs never advance the
+checkpoint (release refuses without a delivered ack), so no digest window
+is ever silently skipped.
+
+Environment:
+  PLAY_DELIVERY   path to play-delivery (default: found on PATH, then
+                  ~/tulving/play/scripts/bin/play-delivery)
+  TULVING_HOME    tulving state home (default ~/.tulving); the checkpoint
+                  lives in <home>/play-delivery/checkpoint.json
+"""
+
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+
+def find_play_delivery() -> str:
+    override = os.environ.get("PLAY_DELIVERY")
+    if override:
+        return override
+    from shutil import which
+
+    found = which("play-delivery")
+    if found:
+        return found
+    fallback = pathlib.Path.home() / "tulving/play/scripts/bin/play-delivery"
+    if fallback.exists():
+        return str(fallback)
+    sys.exit("play-digest-tick: play-delivery not found (set PLAY_DELIVERY)")
+
+
+def state_dir() -> pathlib.Path:
+    home = os.environ.get("TULVING_HOME") or str(pathlib.Path.home() / ".tulving")
+    d = pathlib.Path(home) / "play-delivery"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def run(argv: list[str]) -> str:
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"play-digest-tick: {' '.join(argv[:2])} failed: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def main() -> None:
+    delivery = find_play_delivery()
+    state = state_dir()
+    checkpoint_path = state / "checkpoint.json"
+
+    prepare = [
+        delivery,
+        "prepare",
+        "--target-key",
+        "tulving-self",
+        "--channel",
+        "ledger",
+        "--days",
+        "1",
+    ]
+    if checkpoint_path.exists():
+        prepare += ["--checkpoint", str(checkpoint_path)]
+    envelope = json.loads(run(prepare))
+
+    delivery_id = envelope["delivery_id"]
+    ack = {
+        "schema": "play.digest-delivery-ack/v1",
+        "delivery_id": delivery_id,
+        "status": "delivered",
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        env_path = pathlib.Path(tmp) / "envelope.json"
+        ack_path = pathlib.Path(tmp) / "ack.json"
+        env_path.write_text(json.dumps(envelope))
+        ack_path.write_text(json.dumps(ack))
+        checkpoint = run(
+            [delivery, "release", "--envelope", str(env_path), "--ack", str(ack_path)]
+        )
+    # The host owns checkpoint storage; persist only after a clean release.
+    checkpoint_path.write_text(checkpoint)
+
+    summary = envelope.get("summary", {})
+    message = envelope.get("message", {})
+    print(
+        json.dumps(
+            {
+                "delivery_id": delivery_id,
+                "has_updates": bool(summary.get("has_updates")),
+                "new_count": summary.get("new_count", 0),
+                "revised_count": summary.get("revised_count", 0),
+                "public_count": summary.get("public_count", 0),
+                "markdown": message.get("body", ""),
+            }
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

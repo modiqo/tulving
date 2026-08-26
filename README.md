@@ -94,6 +94,10 @@ claude mcp add tulving -- tulving mcp
   `rote-schedule`, a one-file shim that puts a pinned play on a
   schedule. Integrations live outside the core on purpose — tulving
   knows nothing about its producers.
+- **Play**: [integrations/play](integrations/play/) ships
+  `play-digest-tick`, which runs Play's host-neutral two-phase digest
+  delivery (`play.digest-delivery/v1`) on a tulving schedule — Play
+  ships the contract and no scheduler; tulving is the host it expects.
 
 ## Design
 
