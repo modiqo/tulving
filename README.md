@@ -76,7 +76,8 @@ still passes through for those who want it.
 The machine surface: `add -` (JSON spec on stdin), `recall` (JSON lines
 out), `tick` (the OS timer calls it), `init`/`uninit`, `export <path>`,
 `mcp` (serve agent harnesses over stdio), and `update [--check]`.
-The complete reference is [docs/PLAYBOOK.md](docs/PLAYBOOK.md).
+The complete reference is [docs/PLAYBOOK.md](docs/PLAYBOOK.md); the
+use-case guide for harness builders is [docs/USE-CASES.md](docs/USE-CASES.md).
 
 ## The habits it teaches
 
