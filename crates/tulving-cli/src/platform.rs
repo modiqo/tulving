@@ -144,7 +144,10 @@ fn install_systemd_timer() -> Result<()> {
         );
     }
     println!("✓ systemd user timer installed ({UNIT_NAME}.timer); tick runs every 60s");
-    println!("  headless servers also need: loginctl enable-linger $USER");
+    match linger_note() {
+        Some(note) => println!("  {note}"),
+        None => println!("  headless servers also need: loginctl enable-linger $USER"),
+    }
     Ok(())
 }
 
@@ -247,20 +250,105 @@ pub fn remove_timer() -> Result<()> {
 
 // ---------------------------------------------------------------- status
 
+/// What `status` knows about the timer: not just whether it was installed,
+/// but whether the OS is actually running it. A unit file on disk with a
+/// disabled or dead timer must never read as a green clock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimerStatus {
+    /// Which mechanism drives tick, with its observed state.
+    pub label: String,
+    /// True only when the OS reports the timer loaded (macOS) or enabled and active (Linux).
+    pub active: bool,
+    /// Exact command to run when `active` is false.
+    pub remedy: Option<String>,
+    /// A platform note worth printing even when active (WSL2 linger).
+    pub note: Option<String>,
+}
+
 /// Which timer drives tick on this machine, if any. `status` prints it.
 #[cfg(target_os = "macos")]
-pub fn timer_status() -> Option<String> {
+pub fn timer_status() -> Option<TimerStatus> {
     let path = plist_path().ok()?;
-    path.exists()
-        .then(|| format!("launchd agent {LAUNCHD_LABEL} (every 60s)"))
+    if !path.exists() {
+        return None;
+    }
+    let loaded = std::process::Command::new("launchctl")
+        .args(["list", LAUNCHD_LABEL])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    Some(TimerStatus {
+        label: format!("launchd agent {LAUNCHD_LABEL} (every 60s{})", if loaded { "" } else { "; not loaded" }),
+        active: loaded,
+        remedy: (!loaded).then(|| format!("launchctl load {}", path.display())),
+        note: None,
+    })
+}
+
+/// True on WSL2, where a user timer stops at logout or `wsl --shutdown`
+/// unless the user's session is kept alive with linger.
+#[cfg(target_os = "linux")]
+pub fn is_wsl() -> bool {
+    if std::env::var_os("WSL_DISTRO_NAME").is_some() {
+        return true;
+    }
+    std::fs::read_to_string("/proc/version")
+        .map(|v| v.to_ascii_lowercase().contains("microsoft"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn linger_enabled() -> Option<bool> {
+    let user = std::env::var("USER").ok()?;
+    let out = std::process::Command::new("loginctl")
+        .args(["show-user", &user, "-p", "Linger", "--value"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim() == "yes")
+}
+
+#[cfg(target_os = "linux")]
+fn linger_note() -> Option<String> {
+    if !is_wsl() {
+        return None;
+    }
+    match linger_enabled() {
+        Some(true) => None,
+        _ => Some(
+            "WSL2: the timer stops at logout or `wsl --shutdown` until you run: sudo loginctl enable-linger $USER"
+                .to_string(),
+        ),
+    }
 }
 
 /// Which timer drives tick on this machine, if any. `status` prints it.
 #[cfg(target_os = "linux")]
-pub fn timer_status() -> Option<String> {
+pub fn timer_status() -> Option<TimerStatus> {
+    let unit = format!("{UNIT_NAME}.timer");
     if let Ok(dir) = systemd_user_dir() {
-        if dir.join(format!("{UNIT_NAME}.timer")).exists() {
-            return Some(format!("systemd user timer {UNIT_NAME}.timer (every 60s)"));
+        if dir.join(&unit).exists() {
+            let enabled = systemctl_user(&["is-enabled", &unit])
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            let active = systemctl_user(&["is-active", &unit])
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            let running = enabled && active;
+            let state = match (enabled, active) {
+                (true, true) => "enabled, active",
+                (true, false) => "enabled, not active",
+                (false, true) => "active, not enabled",
+                (false, false) => "installed but disabled and inactive",
+            };
+            return Some(TimerStatus {
+                label: format!("systemd user timer {unit} (every 60s; {state})"),
+                active: running,
+                remedy: (!running).then(|| format!("systemctl --user enable --now {unit}")),
+                note: linger_note(),
+            });
         }
     }
     let out = std::process::Command::new("crontab")
@@ -271,11 +359,16 @@ pub fn timer_status() -> Option<String> {
     table
         .lines()
         .any(|l| l.contains("tulving tick"))
-        .then(|| "crontab line (every 60s)".to_string())
+        .then(|| TimerStatus {
+            label: "crontab line (every 60s)".to_string(),
+            active: true,
+            remedy: None,
+            note: None,
+        })
 }
 
 /// Which timer drives tick on this machine, if any.
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn timer_status() -> Option<String> {
+pub fn timer_status() -> Option<TimerStatus> {
     None
 }

@@ -88,6 +88,22 @@ fn env_fingerprint() -> Option<serde_json::Value> {
 
 /// Execute one schedule now; append the envelope; apply predicates,
 /// the notifier, and stop conditions.
+/// The last part of a stream, bounded so a chatty failure cannot bloat the ledger.
+pub fn stderr_tail(stderr: &str) -> String {
+    const LIMIT: usize = 4096;
+    let trimmed = stderr.trim();
+    if trimmed.len() <= LIMIT {
+        return trimmed.to_string();
+    }
+    let mut start = trimmed.len() - LIMIT;
+    while !trimmed.is_char_boundary(start) {
+        start += 1;
+    }
+    format!("…{}", trimmed.get(start..).unwrap_or(trimmed))
+}
+
+/// Run one schedule's command now, diff it against the previous envelope,
+/// notify if asked, and store the envelope.
 pub fn run_schedule(ledger: &Ledger, schedule: &Schedule, missed: bool) -> Result<Envelope> {
     let Some((program, args)) = schedule.argv.split_first() else {
         bail!("schedule {} has an empty command", schedule.id);
@@ -113,10 +129,18 @@ pub fn run_schedule(ledger: &Ledger, schedule: &Schedule, missed: bool) -> Resul
     let duration_ms = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
 
     let (exit, stdout) = match output {
-        Ok(out) => (
-            out.status.code(),
-            String::from_utf8_lossy(&out.stdout).to_string(),
-        ),
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            // A command that prints nothing and fails would leave an empty
+            // envelope; keep the tail of stderr so the failure is readable.
+            let text = if stdout.trim().is_empty() && !stderr.trim().is_empty() {
+                format!("stderr: {}", stderr_tail(&stderr))
+            } else {
+                stdout
+            };
+            (out.status.code(), text)
+        }
         Err(err) => (None, format!("spawn error: {err}")),
     };
 
@@ -568,5 +592,24 @@ mod tests {
         let mut sp = spec(&["true"], "hourly");
         sp.until = Some(".state ==".into());
         assert!(crystallize(&ledger, sp).is_err());
+    }
+}
+
+
+#[cfg(test)]
+mod stderr_tail_tests {
+    use super::stderr_tail;
+
+    #[test]
+    fn short_stderr_is_kept_whole() {
+        assert_eq!("boom", stderr_tail("  boom\n"));
+    }
+
+    #[test]
+    fn long_stderr_keeps_the_tail() {
+        let long = "x".repeat(5000);
+        let tail = stderr_tail(&long);
+        assert!(tail.starts_with('…'));
+        assert_eq!(4096 + '…'.len_utf8(), tail.len());
     }
 }
