@@ -10,7 +10,7 @@ repository.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
-tulving-core = { path = "../tulving-core", version = "0.1.3" }
+tulving-core = { path = "../tulving-core", version = "0.1.4" }
 
 [lints]
 workspace = true

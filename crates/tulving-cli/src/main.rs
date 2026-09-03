@@ -29,6 +29,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Keep doing this: tulving every morning --why "pricing watch" -- <cmd>
+    ///
+    /// The command runs unattended, without a terminal: anything that asks a
+    /// question will fail. Pass the tool's own non-interactive flag, for
+    /// example `rote play run <play> --yes`.
     #[command(visible_alias = "create")]
     Every {
         /// Plain-words cadence: morning, 15m, "weekdays 7:30", "monday 9am"
@@ -194,6 +198,9 @@ fn run() -> Result<()> {
         } => {
             let ledger = Ledger::open_default()?;
             let cadence_text = cadence.join(" ");
+            if let Some(warning) = unattended_warning(&cmd) {
+                eprintln!("warning: {warning}");
+            }
             let spec = ScheduleSpec {
                 argv: cmd,
                 cadence: cadence_text,
@@ -523,7 +530,21 @@ fn print_digest(ledger: &Ledger, since: &str) -> Result<()> {
 
 fn print_status(ledger: &Ledger) -> Result<()> {
     match platform::timer_status() {
-        Some(timer) => println!("✓ clock    {timer}"),
+        Some(timer) if timer.active => {
+            println!("✓ clock    {}", timer.label);
+            if let Some(note) = timer.note {
+                println!("           {note}");
+            }
+        }
+        Some(timer) => {
+            println!("✗ clock    {}", timer.label);
+            if let Some(remedy) = timer.remedy {
+                println!("           scheduled runs will not fire — run: {remedy}");
+            }
+            if let Some(note) = timer.note {
+                println!("           {note}");
+            }
+        }
         None => println!("✗ clock    no timer installed — run: tulving init"),
     }
     let path = tulving_core::paths::ledger_path();
@@ -600,4 +621,45 @@ fn print_card(s: &Schedule) {
     );
     println!("  dies   {}", mortality(s));
     println!("  cmd    {}", s.argv.join(" "));
+}
+
+
+/// A scheduled command runs without a terminal. Name the flag a known
+/// interactive tool needs before the first run fails with an empty envelope.
+fn unattended_warning(argv: &[String]) -> Option<String> {
+    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let is_rote_play_run = matches!(
+        words.as_slice(),
+        [program, "play", "run", ..] if program.rsplit('/').next() == Some("rote")
+    );
+    if is_rote_play_run && !words.iter().any(|w| *w == "--yes" || *w == "-y") {
+        return Some(
+            "`rote play run` asks for confirmation and this schedule runs without a terminal; add --yes or the run exits 1 with no output"
+                .to_string(),
+        );
+    }
+    None
+}
+
+#[cfg(test)]
+mod unattended_tests {
+    use super::unattended_warning;
+
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|p| (*p).to_string()).collect()
+    }
+
+    #[test]
+    fn rote_play_run_without_yes_warns() {
+        assert!(unattended_warning(&argv(&["rote", "play", "run", "modiqo/x@1.0.0", "count=10"])).is_some());
+        assert!(unattended_warning(&argv(&["/opt/homebrew/bin/rote", "play", "run", "x"])).is_some());
+    }
+
+    #[test]
+    fn yes_flag_or_other_commands_do_not_warn() {
+        assert!(unattended_warning(&argv(&["rote", "play", "run", "x", "--yes"])).is_none());
+        assert!(unattended_warning(&argv(&["rote", "play", "run", "x", "-y"])).is_none());
+        assert!(unattended_warning(&argv(&["curl", "https://example.com"])).is_none());
+        assert!(unattended_warning(&argv(&["rote", "play", "inspect", "x"])).is_none());
+    }
 }
