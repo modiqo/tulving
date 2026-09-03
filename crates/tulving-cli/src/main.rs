@@ -174,10 +174,19 @@ enum Command {
 }
 
 fn main() {
+    restore_sigpipe();
     if let Err(err) = run() {
         eprintln!("tulving: {err:#}");
         std::process::exit(1);
     }
+}
+
+/// Rust starts with SIGPIPE ignored, so `tulving status | head -1` ends in a
+/// panic from `println!` once `head` closes the pipe. Restore the default so a
+/// closed pipe ends the process quietly, the way every other CLI tool behaves.
+/// The workspace forbids `unsafe`; the `sigpipe` crate owns the one call.
+fn restore_sigpipe() {
+    sigpipe::reset();
 }
 
 fn run() -> Result<()> {

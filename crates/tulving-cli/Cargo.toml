@@ -11,6 +11,7 @@ name = "tulving"
 path = "src/main.rs"
 
 [dependencies]
+sigpipe = "0.1"
 anyhow.workspace = true
 chrono.workspace = true
 clap = { version = "4", features = ["derive"] }
