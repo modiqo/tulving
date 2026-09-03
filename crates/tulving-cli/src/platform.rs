@@ -278,7 +278,10 @@ pub fn timer_status() -> Option<TimerStatus> {
         .map(|o| o.status.success())
         .unwrap_or(false);
     Some(TimerStatus {
-        label: format!("launchd agent {LAUNCHD_LABEL} (every 60s{})", if loaded { "" } else { "; not loaded" }),
+        label: format!(
+            "launchd agent {LAUNCHD_LABEL} (every 60s{})",
+            if loaded { "" } else { "; not loaded" }
+        ),
         active: loaded,
         remedy: (!loaded).then(|| format!("launchctl load {}", path.display())),
         note: None,

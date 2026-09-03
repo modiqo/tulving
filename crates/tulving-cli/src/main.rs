@@ -632,7 +632,6 @@ fn print_card(s: &Schedule) {
     println!("  cmd    {}", s.argv.join(" "));
 }
 
-
 /// A scheduled command runs without a terminal. Name the flag a known
 /// interactive tool needs before the first run fails with an empty envelope.
 fn unattended_warning(argv: &[String]) -> Option<String> {
@@ -660,8 +659,17 @@ mod unattended_tests {
 
     #[test]
     fn rote_play_run_without_yes_warns() {
-        assert!(unattended_warning(&argv(&["rote", "play", "run", "modiqo/x@1.0.0", "count=10"])).is_some());
-        assert!(unattended_warning(&argv(&["/opt/homebrew/bin/rote", "play", "run", "x"])).is_some());
+        assert!(unattended_warning(&argv(&[
+            "rote",
+            "play",
+            "run",
+            "modiqo/x@1.0.0",
+            "count=10"
+        ]))
+        .is_some());
+        assert!(
+            unattended_warning(&argv(&["/opt/homebrew/bin/rote", "play", "run", "x"])).is_some()
+        );
     }
 
     #[test]

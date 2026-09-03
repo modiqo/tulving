@@ -595,7 +595,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod stderr_tail_tests {
     use super::stderr_tail;
