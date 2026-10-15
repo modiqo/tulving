@@ -171,9 +171,13 @@ Safe copy via `VACUUM INTO`; use this instead of copying the db file.
 ### update — pull the latest release
 
 ```
-tulving update --check   # {"installed": "...", "latest": "...", "update_available": bool}
-tulving update           # install it
+tulving update --check   # {"installed": "...", "latest": "...", "update_available": bool, "status": "available" | "current" | "installed_newer"}
+tulving update           # install it, only if the latest release is newer
 ```
+
+Only a strictly newer release counts as an update; when the installed
+version is ahead of the latest release, `update` says so and never
+downgrades. A version that is not `MAJOR.MINOR.PATCH` is an error.
 
 `--check` is JSON so a harness can offer the update. Install detects a
 Homebrew-managed binary and delegates to `brew upgrade`; otherwise it
